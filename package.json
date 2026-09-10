@@ -61,5 +61,9 @@
   "bugs": {
     "url": "https://github.com/TodayWei/dsh-wei-sitecontrol/issues"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
 }
