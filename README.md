@@ -252,6 +252,7 @@ collect → connect → detect → resolve uploadDir → (install) → script �
 ## 已知限制
 
 - **内置 git 只支持 HTTP(S) 远端**:`git@host:path` 这类 SSH 远端无法推送(isomorphic-git 不支持 SSH 传输)。本地 `status`/`commit` 不受影响。要推 SSH 远端请改为 HTTPS + token,或改用系统 git。
+- **内置 git 的 HTTP 传输是本插件自己实现的**(`lib/githttp.js`),因为 isomorphic-git 自带的 Node 客户端有两个坑:①它内部用 `simple-get`,而 Node 19+ 的默认连接池是 `keepAlive + timeout:5000` —— 服务器沉默 5 秒(推送到 GitHub 时 `receive-pack` 处理包就会这样)就报出与真实原因无关的 `Request timed out`;②Node 的 `http(s).request` 不读 Windows 系统代理,在需要代理的网络里直连会 `connect ETIMEDOUT`。现在:自管连接与超时,直连失败自动改走 `HTTPS_PROXY`/`HTTP_PROXY`/`ALL_PROXY` 或探测到的本地代理(`127.0.0.1:7890` 等)的 CONNECT 隧道,而 `127.*` / `192.168.*` / `10.*` / `172.16-31.*` 与 `NO_PROXY` 命中的地址始终直连(局域网 git 服务器不会绕远路)。
 - **站点是本 DSH 进程的子进程**:DSH 退出时会被回收;需要长期守护请交给 systemd/pm2 等,再用本插件做登记与发布。
 - **Windows 停止方式**为 `taskkill /T /F`(强制),POSIX 为进程组 `SIGTERM` → `SIGKILL`。
 - 密钥与密码只存本机注册表(`registry.json`),API 与工具返回中一律脱敏。
