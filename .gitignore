@@ -1,0 +1,20 @@
+# 依赖(别人 clone 后 npm install 自行安装)
+node_modules/
+
+# 打包产物
+*.tgz
+*.tar.gz
+
+# 运行时数据(注册表 / 密钥 / 脚本 / 日志)绝不入库
+registry.json
+keys/
+scripts/
+logs/
+*.log
+
+# 编辑器与系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

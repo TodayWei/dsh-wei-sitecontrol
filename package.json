@@ -1,0 +1,64 @@
+{
+  "name": "dsh-wei-sitecontrol",
+  "version": "0.1.0",
+  "description": "Site controller for DeepSeek Harness: register websites/HTTP services and manage their lifecycle, git, and release-based SSH deploys — with server probing, stored deploy scripts, rollback and scheduled publishing.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./skill": "./skill/SKILL.md"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib",
+    "skill",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "isomorphic-git": "^1.27.1",
+    "ssh2": "^1.17.0"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "sites",
+    "supervisor",
+    "deploy",
+    "git",
+    "ssh",
+    "release"
+  ],
+  "author": {
+    "name": "mrwei",
+    "email": "10000715@qq.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TodayWei/dsh-wei-sitecontrol.git"
+  },
+  "homepage": "https://github.com/TodayWei/dsh-wei-sitecontrol#readme",
+  "bugs": {
+    "url": "https://github.com/TodayWei/dsh-wei-sitecontrol/issues"
+  },
+  "license": "MIT"
+}

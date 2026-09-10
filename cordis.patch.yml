@@ -1,0 +1,23 @@
+# dsh-wei-sitecontrol bundle patch: inserts this plugin row into the profile roster.
+# Installed with: dsh plugin --profile web add <abs-path-to-this-repo>
+#
+# One dual-face package by name: the Node half (index.js) owns the site
+# registry, the process supervisor, built-in git and the SSH deployer, and
+# serves the /dsh-wei-sitecontrol HTTP API; the browser half (exports["./client"],
+# declared via dsh.client) renders the sidebar entry and the management panel.
+#
+# Optional config (override from a later layer, e.g. the profile patch):
+#   - id: site-manager
+#     config:
+#       dataDir: /abs/path        # default: $DSH_HOME/storages/dsh-wei-sitecontrol
+#       ringLines: 5000           # in-memory log lines per site
+#       stopGraceMs: 3000         # SIGTERM -> SIGKILL grace
+#       autoReclaimOrphans: true  # boot-time sweep of this plugin's own
+#                                 # leftover servers after a hard-killed DSH;
+#                                 # only processes whose command line matches
+#                                 # the site's own command are terminated
+#       gitAuthorName: DSH Site Manager
+#       gitAuthorEmail: site-manager@localhost
+- insert:
+    - id: site-manager
+      name: dsh-wei-sitecontrol
