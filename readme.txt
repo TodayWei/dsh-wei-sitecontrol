@@ -38,6 +38,9 @@
     定时发布、release 模式发布与一键回滚。
   * 密钥保险库:私钥只存本机,只返回元数据与 SHA256 指纹,内容永不出现在
     任何 API、工具或日志输出里。
+  * 监视:面板里的「监视」页显示本机 CPU / 内存 / 磁盘、各站点进程的实时占用,
+    以及 DSH 下正在跑的任务名字(只列名字、不带进度,agent 忙的时候也看得清)。
+    零依赖:CPU/内存取自 Node 自身 os,进程表一次 CIM 采样并缓存 1.5 秒。
 
 3. 环境要求
 --------------------------------------------------------------------------------
@@ -181,6 +184,11 @@ In one line: sites born in DSH are managed in one panel, from "it runs" to
   * Key vault: private keys stay on this machine; only metadata and an SHA256
     fingerprint are ever returned. Key material never appears in any API
     response, tool result or log line.
+  * Monitor: the panel's Monitor section shows host CPU / memory / disk, what
+    each site process is currently using, and the names of the tasks running
+    under DSH - names only, no progress, so it stays readable while the agent
+    is busy. Zero dependencies: CPU/memory come from Node's own `os`, the
+    process table is one CIM sample cached for 1.5 s.
 
 3. Requirements
 --------------------------------------------------------------------------------

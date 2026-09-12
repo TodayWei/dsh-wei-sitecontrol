@@ -53,6 +53,7 @@ site_register({
 | 启动 / 停止 / 重启 | `site_start` / `site_stop` / `site_restart` |
 | 看日志(可搜索) | `site_logs`(可传 `tail`、`search`) |
 | 验证服务是否活着 | `site_health` |
+| 看本机负载 / 正在跑什么 | `site_monitor`(CPU/内存/磁盘 + 各站点进程占用 + 任务名字;只要名字,不带进度) |
 | 撤销登记 | `site_unregister` |
 
 **排障顺序**:`site_list` 看状态 → `site_logs` 看报错 → 需要时 `site_health` 确认端口/路径是否正确。启动失败最常见的原因是端口被占用或依赖未安装(`installCommand` 没跑过)。

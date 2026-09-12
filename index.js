@@ -27,6 +27,7 @@ import { SERVICE_PLAYBOOK } from './lib/detect.js'
 import { importProfile } from './lib/profile.js'
 import { confirmFromProbe, provisionFromText } from './lib/provision.js'
 import { Scheduler } from './lib/schedule.js'
+import { Monitor, summarize, formatSnapshot } from './lib/sysmon.js'
 
 export const name = 'dsh-wei-sitecontrol'
 
@@ -76,6 +77,9 @@ export function apply(ctx, config = {}) {
   const vault = new KeyVault({ dataDir, logger: ctx.logger })
   const scripts = new ScriptStore({ dataDir, logger: ctx.logger })
   const deployer = new Deployer({ logger: ctx.logger, vault, scripts })
+// Machine resources and the running-task list. Sampling is on demand and cached
+// for a moment, so the panel polling every couple of seconds stays cheap.
+const monitor = new Monitor()
 
   // ── registry access ──────────────────────────────────────────────────────
   const state = store.read()
@@ -278,6 +282,22 @@ export function apply(ctx, config = {}) {
             dataDir,
             active: list.filter((s) => s.status.state !== 'stopped').length,
             conflicts: list.filter((s) => s.status.conflict).length,
+          })
+        }
+
+        if (parts.length === 2 && parts[1] === 'monitor' && method === 'GET') {
+          // Names only: the panel shows which tasks exist, never progress.
+          const snapshot = monitor.snapshot({ sites: listSites(), dshPid: process.pid, tolerateProbeFailure: true })
+          const sitesBusy = snapshot.sites
+            .filter((s) => s.pids.length > 0)
+            .map((s) => ({ id: s.id, name: s.name, state: s.state, port: s.port, pids: s.pids, cpuPercent: s.cpuPercent, memBytes: s.memBytes }))
+          return json(res, 200, {
+            summary: summarize(snapshot),
+            machine: snapshot.machine,
+            sites: sitesBusy,
+            tasks: snapshot.tasks,
+            probeError: snapshot.probeError,
+            sampledAt: snapshot.sampledAt,
           })
         }
 
@@ -617,6 +637,23 @@ export function apply(ctx, config = {}) {
       if (list.length === 0) return '(no sites registered yet)'
       return list.map(siteLine).join('\n')
     },
+  })
+
+  ctx.tools.register({
+    name: 'site_monitor',
+    description:
+      'Snapshot of the machine this DSH is working on: CPU / memory / disk, what each registered site is consuming, and the names of the processes running under DSH. Names only — no progress, no output — so it is safe to call while other work is in flight.',
+    parameters: {
+      type: 'object',
+      properties: {
+        includeTasks: { type: 'boolean', description: 'Include the running-process list (default true)' },
+      },
+    },
+    output: textOutput,
+    execute: async (args) => formatSnapshot(
+      monitor.snapshot({ sites: listSites(), dshPid: process.pid, tolerateProbeFailure: true }),
+      { includeTasks: args?.includeTasks !== false },
+    ),
   })
 
   ctx.tools.register({

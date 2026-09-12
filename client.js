@@ -169,6 +169,10 @@ window.__ModuleLoader__.load({ id: 'dsh-wei-sitecontrol', factory: (require) => 
     vault: emptyVault(),            // key vault: metadata only
     scripts: emptyScripts(),        // stored deploy scripts
     schedules: emptySchedules(),    // scheduled publishes
+    monitor: null,                  // last /monitor snapshot (machine + names only)
+    monitorOpen: false,             // is the monitor section expanded
+    monitorBusy: false,
+    monitorError: undefined,
     listeners: new Set(),
     emit() { for (const fn of [...this.listeners]) { try { fn() } catch {} } },
     subscribe(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn) },
@@ -191,6 +195,28 @@ window.__ModuleLoader__.load({ id: 'dsh-wei-sitecontrol', factory: (require) => 
         store.emit()
       }
     }, ms || 6000)
+  }
+
+  /**
+   * Machine resources plus the names of what is currently running.
+   *
+   * Deliberately polled only while the monitor section is open, and only every
+   * couple of seconds: the host caches its sample, and nothing a human needs to
+   * decide anything by changes faster than that. Named tasks only — this never
+   * carries progress or output, so switching it on cannot flood the panel while
+   * other work is in flight.
+   */
+  const loadMonitor = async () => {
+    store.monitorBusy = true
+    try {
+      store.monitor = await jsonFetch(`${API}/monitor`)
+      store.monitorError = undefined
+    } catch (err) {
+      store.monitorError = errText(err)
+    } finally {
+      store.monitorBusy = false
+      store.emit()
+    }
   }
 
   // ── transport helpers (never throw raw parse errors at the UI) ──────────
@@ -1679,6 +1705,22 @@ window.__ModuleLoader__.load({ id: 'dsh-wei-sitecontrol', factory: (require) => 
 .dshsm-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
 .dshsm-sec{margin:8px 0 0;padding:8px;border-radius:8px;border:1px solid rgba(127,127,127,.3);background:rgba(127,127,127,.04)}
 .dshsm-sec-title{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;font-weight:600;margin-bottom:6px}
+.dshsm-mon{margin:8px 0 0;padding:8px;border-radius:8px;border:1px solid rgba(127,127,127,.3);background:rgba(127,127,127,.04)}
+.dshsm-mon-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:6px 14px}
+.dshsm-mon-metric{display:flex;align-items:center;gap:6px;font-size:11px;min-width:0}
+.dshsm-mon-k{min-width:34px;opacity:.65}
+.dshsm-mon-v{font-family:ui-monospace,SFMono-Regular,monospace;font-variant-numeric:tabular-nums;white-space:nowrap}
+.dshsm-mon-bar{flex:1 1 60px;min-width:50px;height:6px;border-radius:3px;background:rgba(127,127,127,.25);overflow:hidden}
+.dshsm-mon-fill{height:100%;border-radius:3px;transition:width .3s ease}
+.dshsm-mon-sub{font-size:11px;opacity:.65;margin:8px 0 4px}
+.dshsm-mon-list{max-height:200px;overflow:auto;border-radius:6px;padding:6px;background:rgba(127,127,127,.1);
+  font-family:ui-monospace,SFMono-Regular,monospace;font-size:11px;line-height:1.6}
+.dshsm-mon-task{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.dshsm-mon-task + .dshsm-mon-task{margin-top:3px}
+.dshsm-mon-task-label{flex:1 1 150px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dshsm-mon-badge{font-size:10px;padding:0 4px;border-radius:4px;border:1px solid rgba(127,127,127,.45);opacity:.8}
+.dshsm-mon-num{opacity:.7;font-variant-numeric:tabular-nums;white-space:nowrap}
+.dshsm-mon-chips{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;opacity:.7;margin-top:6px}
 .dshsm-pre{max-height:200px;overflow:auto;border-radius:6px;padding:6px 8px;background:rgba(127,127,127,.1);
   font-family:ui-monospace,SFMono-Regular,monospace;font-size:11px;line-height:1.6;white-space:pre-wrap;word-break:break-all}
 .dshsm-cmdblock{margin-left:14px;white-space:pre-wrap;word-break:break-all;opacity:.8;
@@ -2903,6 +2945,102 @@ window.__ModuleLoader__.load({ id: 'dsh-wei-sitecontrol', factory: (require) => 
     )
   }
 
+  // ── monitor: machine load and the names of whatever is running ──────────
+  /** Threshold colours, matching the status lamps: calm, warning, alarm. */
+  const monColor = (percent) =>
+    percent == null ? '#98989d' : percent >= 90 ? '#ff453a' : percent >= 70 ? '#ff9f0a' : '#34c759'
+
+  const monBar = (percent) =>
+    h('div', { className: 'dshsm-mon-bar' },
+      h('div', {
+        className: 'dshsm-mon-fill',
+        style: { width: `${Math.max(0, Math.min(100, Number(percent) || 0))}%`, background: monColor(percent) },
+      }))
+
+  const monPercent = (value) => (typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(0)}%` : '—')
+  const monBytes = (value) => {
+    const n = Number(value || 0)
+    if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(1)} GB`
+    if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(0)} MB`
+    return `${(n / 1024).toFixed(0)} KB`
+  }
+
+  /**
+   * Polls only while expanded, so a closed panel costs nothing. Shows names and
+   * usage only — never progress or task output — which is the whole point: it
+   * must stay readable while DSH is busy doing the actual work.
+   */
+  const MonitorSection = () => {
+    React.useEffect(() => {
+      if (!store.monitorOpen) return undefined
+      loadMonitor()
+      const timer = setInterval(loadMonitor, 2000)
+      return () => clearInterval(timer)
+    }, [store.monitorOpen])
+    if (!store.monitorOpen) return null
+
+    const snap = store.monitor
+    const machine = snap ? snap.machine : null
+    const busySites = snap ? snap.sites.filter((s) => s.pids.length > 0) : []
+    const tasks = snap ? snap.tasks : []
+
+    return h('div', { className: 'dshsm-mon' },
+      h('div', { className: 'dshsm-sec-title' },
+        h('span', null, '监视 · 本机负载与在跑的任务'),
+        h('span', { className: 'dshsm-hint' },
+          snap
+            ? `${new Date(snap.sampledAt).toLocaleTimeString()} 采样 · 每 2 秒${store.monitorBusy ? ' · 采样中' : ''}`
+            : (store.monitorBusy ? '采样中…' : '')),
+        btn('↻ 立即采样', () => loadMonitor(), { tone: 'outline' }),
+      ),
+      store.monitorError
+        ? h('div', { className: 'dshsm-banner dshsm-banner-err' }, h('span', null, `监视读取失败:${store.monitorError}`))
+        : null,
+      !snap || !machine
+        ? h('div', { className: 'dshsm-hint' }, store.monitorBusy ? '正在采样…' : '还没有数据')
+        : h(React.Fragment, null,
+            h('div', { className: 'dshsm-mon-grid' },
+              h('div', { className: 'dshsm-mon-metric' },
+                h('span', { className: 'dshsm-mon-k' }, 'CPU'),
+                monBar(machine.cpuPercent),
+                h('span', { className: 'dshsm-mon-v' }, `${monPercent(machine.cpuPercent)} ×${machine.cores}`)),
+              h('div', { className: 'dshsm-mon-metric' },
+                h('span', { className: 'dshsm-mon-k' }, '内存'),
+                monBar(machine.memPercent),
+                h('span', { className: 'dshsm-mon-v' }, `${monPercent(machine.memPercent)} ${monBytes(machine.memUsedBytes)}/${monBytes(machine.memTotalBytes)}`)),
+            ),
+            (machine.disks || []).length
+              ? h('div', { className: 'dshsm-mon-chips' },
+                  machine.disks.map((d) => h('span', { key: d.path }, `${d.path} 已用 ${d.usedPercent.toFixed(0)}%`)))
+              : null,
+            snap.probeError
+              ? h('div', { className: 'dshsm-banner dshsm-banner-err' },
+                  h('span', null, `进程列表不可用:${snap.probeError}(上面 CPU / 内存仍然有效)`))
+              : null,
+            h('div', { className: 'dshsm-mon-sub' }, busySites.length ? `站点占用(${busySites.length} 个在跑)` : '站点占用:没有站点进程在跑'),
+            busySites.length
+              ? h('div', { className: 'dshsm-mon-list' },
+                  busySites.map((s) => h('div', { className: 'dshsm-mon-task', key: s.id },
+                    h('span', { className: 'dshsm-mon-badge' }, s.port == null ? 'site' : `:${s.port}`),
+                    h('span', { className: 'dshsm-mon-task-label', title: `${s.name} · pid ${s.pids.join(',')}` }, s.name),
+                    h('span', { className: 'dshsm-mon-num' }, `CPU ${monPercent(s.cpuPercent)}`),
+                    h('span', { className: 'dshsm-mon-num' }, monBytes(s.memBytes)),
+                    h('span', { className: 'dshsm-mon-num' }, `pid ${s.pids.join(',')}`))))
+              : null,
+            h('div', { className: 'dshsm-mon-sub' }, `在跑的任务(只有名字,共 ${tasks.length} 个)`),
+            h('div', { className: 'dshsm-mon-list' },
+              tasks.length
+                ? tasks.map((t) => h('div', { className: 'dshsm-mon-task', key: t.pid },
+                    h('span', { className: 'dshsm-mon-badge' }, t.kind === 'dsh' ? 'DSH' : t.kind === 'site' ? '站点' : `子进程 d${t.depth}`),
+                    h('span', { className: 'dshsm-mon-task-label', title: t.cmd || t.label }, t.label),
+                    h('span', { className: 'dshsm-mon-num' }, `CPU ${monPercent(t.cpuPercent)}`),
+                    h('span', { className: 'dshsm-mon-num' }, monBytes(t.memBytes)),
+                    h('span', { className: 'dshsm-mon-num' }, `pid ${t.pid}`)))
+                : '没有可显示的任务'),
+          ),
+    )
+  }
+
   // ── drawer panel ────────────────────────────────────────────────────────
   const SiteManagerPanel = () => {
     useSiteManager()
@@ -2947,6 +3085,11 @@ window.__ModuleLoader__.load({ id: 'dsh-wei-sitecontrol', factory: (require) => 
           store.form.ok = undefined
           store.emit()
         }, { active: store.form.open }),
+        btn(store.monitorOpen ? '▾ 监视' : '▸ 监视', () => {
+          store.monitorOpen = !store.monitorOpen
+          if (!store.monitorOpen) store.monitor = null
+          store.emit()
+        }, { tone: 'outline', active: store.monitorOpen, title: '本机 CPU / 内存 / 磁盘与正在跑的任务(只有名字)' }),
         btn('↻ 刷新', refresh, { tone: 'outline' }),
         btn('✕', closing, { title: '关闭面板' }),
       ),
@@ -2974,6 +3117,7 @@ window.__ModuleLoader__.load({ id: 'dsh-wei-sitecontrol', factory: (require) => 
           ? h('div', { className: 'dshsm-empty' },
               store.loaded ? '还没有站点 — 用上面的「添加站点」表单新建,或让 agent 调用 site_* 工具注册' : '加载中…')
           : null,
+        MonitorSection(),
         groups.map(([ws, list]) => h('div', { key: ws },
           h('div', { className: 'dshsm-ws' }, ws),
           list.map((site) => h(SiteRow, { key: site.id, site })),

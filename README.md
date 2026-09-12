@@ -6,6 +6,7 @@ DSH 插件:把**在这台机器上用 DSH 做出来的网站 / HTTP 服务**登�
 - 🤖 给 Agent 的 `site_*` 工具 + 一份登记技能(`skill/SKILL.md`)
 - 🗄️ 注册表落盘 `$DSH_HOME/storages/dsh-wei-sitecontrol/registry.json`
 - 🔧 内置纯 JS git(`isomorphic-git`,无需系统 git)与 SSH 发布(`ssh2`)
+- 📈 **监视**:面板里的「监视」页显示本机 CPU / 内存 / 磁盘、每个站点进程的实时占用,以及 DSH 下正在跑的任务**名字**(只列名字、不带进度,agent 忙碌时也看得清)
 
 ## 双半结构
 
@@ -80,6 +81,7 @@ cmd /c mklink /J "%USERPROFILE%\.dsh\profiles\web\node_modules\dsh-wei-sitecontr
 | `GET /schedules`,`POST /schedules`,`DELETE /schedules/<id>` | 定时发布排期(入库、重启后自动恢复) |
 | `GET /sites/<id>/releases?target=`,`POST /sites/<id>/rollback` | release 模式的发布历史与回滚 |
 | `GET /status` | 站点数与运行中数量(面板徽标用) |
+| `GET /monitor` | **监视快照**:`{ summary, machine, sites, tasks, probeError, sampledAt }` —— 机器 CPU/内存/磁盘(按 tick 差值算,首次为 `null` 而不是编一个数)、各站点进程的 CPU/内存/pid、以及任务名列表(已过滤采样进程本身) |
 
 ## SSH 部署
 
@@ -203,7 +205,29 @@ collect → connect → detect → resolve uploadDir → (install) → script �
 
 ### 相关工具
 
-`site_key_add` · `site_key_list` · `site_key_remove` · `site_target_add` · `site_target_list` · `site_server_detect` · `site_deploy_plan` · `site_deploy` · `site_script`
+`site_key_add` · `site_key_list` · `site_key_remove` · `site_target_add` · `site_target_list` · `site_server_detect` · `site_deploy_plan` · `site_deploy` · `site_script` · **`site_monitor`**
+
+### 监视(`site_monitor` 与面板「监视」页)
+
+回答两个问题:**这台机器现在有多忙**,以及 **DSH 底下正在跑什么**(只要名字)。
+
+```
+CPU 18%(×20) · 内存 40% · 站点 1/4 运行 · 任务 6  ·  2026-09-10T19:12:03.114Z
+磁盘: C:\ 91%  |  D:\ 65%  |  E:\ 72%
+站点占用:
+  进驰官网  running  :8080  CPU 0%  内存 32.1 MB  pid 25032,33212
+在跑的任务(只有名字,共 6 个):
+  [dsh] DSH 本体  pid 29840  CPU 1%  内存 210.4 MB  ·  node .../dsh/lib/bin.js --profile web
+  [site] 站点 · 进驰官网  pid 33212  CPU 0%  内存 32.0 MB  ·  python -m http.server 8080
+  [child] conhost.exe  pid 1316  CPU 0%  内存 7.6 MB  ·  \??\C:\WINDOWS\system32\conhost.exe ...
+```
+
+- **CPU** 是相对**单核**的百分比(多线程任务可以超过 100%);机器级那条按核数换算归一
+- **首次采样不会编数字**:没有前一帧就报 `—`,窗口内第二次采样起才有百分比
+- **进程表**:Windows 走一次 `Get-CimInstance Win32_Process`(约 0.3 秒),POSIX 走 `ps -eo`;采样结果缓存 1.5 秒,所以面板、工具、第二个浏览器标签同时轮询也只花一次采样的代价
+- **任务名字**来自 DSH 进程树 + 已登记站点的命令行匹配(复用孤儿清理那套保守规则),只报 `pid / 名字 / CPU / 内存`,**不含进度与输出** —— 这是刻意的,agent 正在干活时它必须依然可读
+- 采样用的 PowerShell 进程自己会被过滤掉,不会出现在列表里
+- 进程表取不到时(例如 PowerShell 被限制)仍然返回 CPU / 内存,并带 `probeError` 让面板显示一条醒目提示,而不是整页报错
 
 
 ## 数据契约(面板与 Agent 共同依赖)
